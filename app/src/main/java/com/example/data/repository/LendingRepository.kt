@@ -5,10 +5,11 @@ import com.example.data.local.AppDatabase
 import com.example.data.local.DefaultBorrowersSeed
 import com.example.data.local.LendingDao
 import com.example.data.model.AccountStatus
-import com.example.data.model.Customer
-import com.example.data.model.LoanTransaction
+import com.example.data.model.Borrower
+import com.example.data.model.BorrowerWithTransactions
 import com.example.data.model.NewCustomerInput
 import com.example.data.model.RecordTransactionInput
+import com.example.data.model.Transaction
 import com.example.data.model.TransactionType
 import com.example.domain.ExcelWorkbookExporter
 import com.example.domain.LoanCalculator
@@ -19,7 +20,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.UUID
-import kotlin.math.max
 
 class LendingRepository(
     private val dao: LendingDao,
@@ -32,26 +32,38 @@ class LendingRepository(
 
     private val seedMutex = Mutex()
 
-    fun observeCustomers(): Flow<List<Customer>> = dao.observeCustomers()
+    fun observeCustomers(): Flow<List<Borrower>> = dao.observeBorrowers()
 
-    fun observeTransactions(): Flow<List<LoanTransaction>> = dao.observeTransactions()
+    fun observeTransactions(): Flow<List<Transaction>> = dao.observeTransactions()
+
+    fun observeTransactionsForBorrower(borrowerId: String): Flow<List<Transaction>> =
+        dao.observeTransactionsForBorrower(borrowerId)
+
+    fun observeBorrowerWithHistory(borrowerId: String): Flow<BorrowerWithTransactions?> =
+        dao.observeBorrowerWithHistory(borrowerId)
+
+    fun observeActivePrincipalTotal(): Flow<Double> = dao.observeActivePrincipalTotal()
+
+    fun observeMonthlyInterestExpectedTotal(): Flow<Double> = dao.observeMonthlyInterestExpectedTotal()
+
+    fun observeTotalInterestCollected(): Flow<Double> = dao.observeTotalInterestCollected()
 
     suspend fun ensureDefaultSeeded() {
         seedMutex.withLock {
             val prefs = appContext?.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            val alreadySeeded = prefs?.getBoolean(KEY_SEEDED_V1, false) ?: false
-            if (!alreadySeeded) {
-                if (dao.getCustomerCount() == 0) {
-                    val (customers, transactions) = DefaultBorrowersSeed.buildSeedData()
-                    dao.seedDefaultData(customers, transactions)
+            val alreadySeeded = prefs?.getBoolean(KEY_SEEDED_V3, false) ?: false
+            if (!alreadySeeded || dao.getBorrowerCount() == 0) {
+                if (dao.getBorrowerCount() == 0) {
+                    val (borrowers, transactions) = DefaultBorrowersSeed.buildSeedData()
+                    dao.seedDefaultData(borrowers, transactions)
                 }
-                prefs?.edit()?.putBoolean(KEY_SEEDED_V1, true)?.apply()
+                prefs?.edit()?.putBoolean(KEY_SEEDED_V3, true)?.apply()
             }
             syncWorkbookFile()
         }
     }
 
-    suspend fun getCustomerById(customerId: String): Customer? = dao.getCustomerById(customerId)
+    suspend fun getCustomerById(customerId: String): Borrower? = dao.getBorrowerById(customerId)
 
     suspend fun createCustomerWithDisbursement(
         input: NewCustomerInput,
@@ -65,7 +77,7 @@ class LendingRepository(
                 ratePercent = input.monthlyInterestRate,
             )
 
-            val customer = Customer(
+            val borrower = Borrower(
                 id = customerId,
                 customerCode = input.customerCode.trim(),
                 name = input.name.trim(),
@@ -87,7 +99,7 @@ class LendingRepository(
             )
 
             val txnCode = "TXN-${transactionId.take(6).uppercase()}"
-            val transaction = LoanTransaction(
+            val disbursement = Transaction(
                 id = transactionId,
                 transactionCode = txnCode,
                 customerId = customerId,
@@ -101,7 +113,7 @@ class LendingRepository(
                 createdAtMillis = now,
             )
 
-            dao.insertCustomerWithDisbursement(customer, transaction)
+            dao.createBorrowerWithInitialDisbursement(borrower, disbursement)
             syncWorkbookFile()
             Result.success(customerId)
         } catch (e: CancellationException) {
@@ -116,121 +128,7 @@ class LendingRepository(
         transactionId: String = UUID.randomUUID().toString(),
     ): Result<String> {
         return try {
-            val customer = dao.getCustomerById(input.customerId)
-                ?: throw IllegalStateException("Borrower account not found.")
-
-            require(customer.status != AccountStatus.CLOSED.label) {
-                "Cannot log transactions on a closed borrower account."
-            }
-            require(input.amount > 0.0) {
-                "Transaction amount must be greater than zero."
-            }
-
-            var newExtraAdded = customer.extraPrincipalAdded
-            var newRepaid = customer.principalRepaid
-            var newCurrentPrincipal = customer.currentActivePrincipal
-            var newMonthlyInterestDue = customer.monthlyInterestDue
-            var newStatus = customer.status
-            var newLastPaymentDate = customer.lastPaymentDate
-            var newLastInterestPaidMonth = customer.lastInterestPaidMonth
-            var newOutstandingInterest = customer.outstandingInterest
-
-            val txnYearMonth = if (input.transactionDate.length >= 7) {
-                input.transactionDate.substring(0, 7)
-            } else {
-                LoanCalculator.currentYearMonth()
-            }
-
-            when (input.transactionType) {
-                TransactionType.INITIAL_DISBURSEMENT -> {
-                    throw IllegalArgumentException("Use New Borrower flow for Initial Disbursement.")
-                }
-
-                TransactionType.MONTHLY_INTEREST_PAYMENT -> {
-                    newLastPaymentDate = input.transactionDate
-                    newLastInterestPaidMonth = txnYearMonth
-                    if (newOutstandingInterest > 0.0) {
-                        newOutstandingInterest = max(0.0, newOutstandingInterest - input.amount)
-                    }
-                    if (newOutstandingInterest == 0.0 && newStatus == AccountStatus.FOLLOW_UP_NEEDED.label) {
-                        newStatus = AccountStatus.ACTIVE.label
-                    }
-                }
-
-                TransactionType.TOP_UP -> {
-                    newExtraAdded += input.amount
-                    newCurrentPrincipal = max(
-                        0.0,
-                        customer.initialPrincipal + newExtraAdded - newRepaid,
-                    )
-                    newMonthlyInterestDue = LoanCalculator.calculateMonthlyInterest(
-                        principal = newCurrentPrincipal,
-                        ratePercent = customer.monthlyInterestRate,
-                    )
-                }
-
-                TransactionType.PRINCIPAL_REPAYMENT -> {
-                    require(input.amount <= customer.currentActivePrincipal + 0.01) {
-                        "Repayment cannot exceed current active principal (${LoanCalculator.formatCurrency(customer.currentActivePrincipal)})."
-                    }
-                    newRepaid += input.amount
-                    newCurrentPrincipal = max(
-                        0.0,
-                        customer.initialPrincipal + newExtraAdded - newRepaid,
-                    )
-                    newMonthlyInterestDue = LoanCalculator.calculateMonthlyInterest(
-                        principal = newCurrentPrincipal,
-                        ratePercent = customer.monthlyInterestRate,
-                    )
-                    newLastPaymentDate = input.transactionDate
-                    if (newCurrentPrincipal <= 0.01) {
-                        newCurrentPrincipal = 0.0
-                        newMonthlyInterestDue = 0.0
-                        newOutstandingInterest = 0.0
-                        newStatus = AccountStatus.CLOSED.label
-                    }
-                }
-
-                TransactionType.FULL_CLOSURE -> {
-                    newRepaid = customer.initialPrincipal + newExtraAdded
-                    newCurrentPrincipal = 0.0
-                    newMonthlyInterestDue = 0.0
-                    newOutstandingInterest = 0.0
-                    newStatus = AccountStatus.CLOSED.label
-                    newLastPaymentDate = input.transactionDate
-                    newLastInterestPaidMonth = txnYearMonth
-                }
-            }
-
-            val now = System.currentTimeMillis()
-            val updatedCustomer = customer.copy(
-                extraPrincipalAdded = newExtraAdded,
-                principalRepaid = newRepaid,
-                currentActivePrincipal = newCurrentPrincipal,
-                monthlyInterestDue = newMonthlyInterestDue,
-                outstandingInterest = newOutstandingInterest,
-                status = newStatus,
-                lastPaymentDate = newLastPaymentDate,
-                lastInterestPaidMonth = newLastInterestPaidMonth,
-                updatedAtMillis = now,
-            )
-
-            val txnCode = "TXN-${transactionId.take(6).uppercase()}"
-            val transaction = LoanTransaction(
-                id = transactionId,
-                transactionCode = txnCode,
-                customerId = customer.id,
-                customerCode = customer.customerCode,
-                customerName = customer.name,
-                transactionType = input.transactionType.label,
-                amount = input.amount,
-                paymentMode = input.paymentMode.label,
-                transactionDate = input.transactionDate,
-                notes = input.notes.trim(),
-                createdAtMillis = now,
-            )
-
-            dao.updateCustomerAndInsertTransaction(updatedCustomer, transaction)
+            dao.applyLoanTransaction(input = input, transactionId = transactionId)
             syncWorkbookFile()
             Result.success(transactionId)
         } catch (e: CancellationException) {
@@ -248,27 +146,18 @@ class LendingRepository(
         monthlyInterestRate: Double,
         status: AccountStatus,
         followUpNotes: String,
-        currentActivePrincipal: Double,
+        @Suppress("UNUSED_PARAMETER") currentActivePrincipal: Double,
     ): Result<Unit> {
         return try {
-            val existing = dao.getCustomerById(customerId)
-                ?: throw IllegalStateException("Borrower account not found.")
-            val recalculatedInterest = if (status == AccountStatus.CLOSED) {
-                0.0
-            } else {
-                LoanCalculator.calculateMonthlyInterest(currentActivePrincipal, monthlyInterestRate)
-            }
-            val updated = existing.copy(
-                name = name.trim(),
-                phoneNumber = phoneNumber.trim().ifBlank { "—" },
-                dueDayOfMonth = dueDayOfMonth.toLong(),
+            dao.updateBorrowerTerms(
+                borrowerId = customerId,
+                name = name,
+                phoneNumber = phoneNumber,
+                dueDayOfMonth = dueDayOfMonth,
                 monthlyInterestRate = monthlyInterestRate,
-                monthlyInterestDue = recalculatedInterest,
-                status = status.label,
-                followUpNotes = followUpNotes.trim(),
-                updatedAtMillis = System.currentTimeMillis(),
+                status = status,
+                followUpNotes = followUpNotes,
             )
-            dao.updateCustomer(updated)
             syncWorkbookFile()
             Result.success(Unit)
         } catch (e: CancellationException) {
@@ -280,7 +169,7 @@ class LendingRepository(
 
     suspend fun deleteCustomer(customerId: String): Result<Unit> {
         return try {
-            dao.deleteCustomerById(customerId)
+            dao.deleteBorrowerById(customerId)
             syncWorkbookFile()
             Result.success(Unit)
         } catch (e: CancellationException) {
@@ -293,14 +182,14 @@ class LendingRepository(
     private suspend fun syncWorkbookFile() {
         val ctx = appContext ?: return
         withContext(Dispatchers.IO) {
-            val customers = dao.getAllCustomers()
+            val borrowers = dao.getAllBorrowers()
             val transactions = dao.getAllTransactions()
             val today = LoanCalculator.todayIso()
-            val kpis = LoanCalculator.computePortfolioKpis(customers, transactions, today)
+            val kpis = LoanCalculator.computePortfolioKpis(borrowers, transactions, today)
             val summaries = LoanCalculator.buildMonthlyCollectionSummaries(transactions)
             ExcelWorkbookExporter.syncWorkbookToAppStorage(
                 context = ctx,
-                customers = customers,
+                customers = borrowers,
                 transactions = transactions,
                 kpis = kpis,
                 summaries = summaries,
@@ -311,6 +200,6 @@ class LendingRepository(
 
     private companion object {
         const val PREFS_NAME = "lendflow_seed_prefs"
-        const val KEY_SEEDED_V1 = "seeded_default_tamil_v2"
+        const val KEY_SEEDED_V3 = "seeded_default_tamil_v3"
     }
 }

@@ -5,16 +5,16 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import com.example.data.model.AccountStatus
-import com.example.data.model.Customer
-import com.example.data.model.LoanTransaction
+import com.example.data.model.Borrower
 import com.example.data.model.PaymentMode
+import com.example.data.model.Transaction
 import com.example.data.model.TransactionType
 import com.example.domain.LoanCalculator
 import java.util.Locale
 
 @Database(
-    entities = [Customer::class, LoanTransaction::class],
-    version = 2,
+    entities = [Borrower::class, Transaction::class],
+    version = 3,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -140,10 +140,10 @@ object DefaultBorrowersSeed {
         ),
     )
 
-    fun buildSeedData(): Pair<List<Customer>, List<LoanTransaction>> {
+    fun buildSeedData(): Pair<List<Borrower>, List<Transaction>> {
         val baseTime = 1760000000000L
-        val customers = mutableListOf<Customer>()
-        val transactions = mutableListOf<LoanTransaction>()
+        val borrowers = mutableListOf<Borrower>()
+        val transactions = mutableListOf<Transaction>()
         var txnCounter = 1001
 
         defaultSpecs.forEachIndexed { index, spec ->
@@ -153,8 +153,8 @@ object DefaultBorrowersSeed {
             val monthlyDue = LoanCalculator.calculateMonthlyInterest(spec.principal, 2.0)
             val timestamp = baseTime + (index * 1000L)
 
-            customers.add(
-                Customer(
+            borrowers.add(
+                Borrower(
                     id = customerId,
                     customerCode = spec.code,
                     name = spec.name,
@@ -178,7 +178,7 @@ object DefaultBorrowersSeed {
             )
 
             transactions.add(
-                LoanTransaction(
+                Transaction(
                     id = "seed_txn_${txnCounter}",
                     transactionCode = "TXN-$txnCounter",
                     customerId = customerId,
@@ -196,7 +196,7 @@ object DefaultBorrowersSeed {
 
             if (spec.lastPaidMonth == "2026-11" && spec.outstandingInterest == 0.0) {
                 transactions.add(
-                    LoanTransaction(
+                    Transaction(
                         id = "seed_txn_${txnCounter}",
                         transactionCode = "TXN-$txnCounter",
                         customerId = customerId,
@@ -214,6 +214,6 @@ object DefaultBorrowersSeed {
             }
         }
 
-        return customers to transactions
+        return borrowers to transactions
     }
 }

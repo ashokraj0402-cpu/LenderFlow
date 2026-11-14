@@ -161,4 +161,81 @@ class LendingDatabaseTest {
         assertEquals(0.0, afterClose.monthlyInterestDue, 0.01)
         assertEquals(AccountStatus.CLOSED.label, afterClose.status)
     }
+
+    @Test
+    fun dao_handlesLoanCalculationsHistoryRelationsAndAggregations() = runBlocking {
+        val dao = db.lendingDao()
+        val now = System.currentTimeMillis()
+        val borrower = com.example.data.model.Borrower(
+            id = "borrower_test_1",
+            customerCode = "CUS-901",
+            name = "Test Borrower",
+            phoneNumber = "9876543210",
+            disbursementDate = "2026-11-01",
+            dueDayOfMonth = 5L,
+            initialPrincipal = 100000.0,
+            extraPrincipalAdded = 0.0,
+            principalRepaid = 0.0,
+            currentActivePrincipal = 100000.0,
+            monthlyInterestRate = 2.0,
+            monthlyInterestDue = 2000.0,
+            outstandingInterest = 0.0,
+            status = AccountStatus.ACTIVE.label,
+            lastPaymentDate = "2026-11-01",
+            lastInterestPaidMonth = "",
+            followUpNotes = "",
+            createdAtMillis = now,
+            updatedAtMillis = now,
+        )
+        val disbursement = com.example.data.model.Transaction(
+            id = "txn_init_1",
+            transactionCode = "TXN-901",
+            customerId = borrower.id,
+            customerCode = borrower.customerCode,
+            customerName = borrower.name,
+            transactionType = TransactionType.INITIAL_DISBURSEMENT.label,
+            amount = 100000.0,
+            paymentMode = PaymentMode.BANK_TRANSFER.label,
+            transactionDate = "2026-11-01",
+            notes = "Initial loan",
+            createdAtMillis = now,
+        )
+
+        dao.createBorrowerWithInitialDisbursement(borrower, disbursement)
+
+        dao.applyLoanTransaction(
+            input = RecordTransactionInput(
+                customerId = borrower.id,
+                transactionType = TransactionType.TOP_UP,
+                amount = 50000.0,
+                paymentMode = PaymentMode.UPI,
+                transactionDate = "2026-11-05",
+                notes = "Top-up",
+            ),
+            transactionId = "txn_topup_1",
+        )
+        dao.applyLoanTransaction(
+            input = RecordTransactionInput(
+                customerId = borrower.id,
+                transactionType = TransactionType.MONTHLY_INTEREST_PAYMENT,
+                amount = 3000.0,
+                paymentMode = PaymentMode.CASH,
+                transactionDate = "2026-11-10",
+                notes = "November interest",
+            ),
+            transactionId = "txn_interest_1",
+        )
+
+        val history = dao.observeTransactionsForBorrower(borrower.id).first()
+        assertEquals(3, history.size)
+
+        val relation = dao.observeBorrowerWithHistory(borrower.id).first()!!
+        assertEquals(150000.0, relation.borrower.currentActivePrincipal, 0.01)
+        assertEquals(3000.0, relation.borrower.monthlyInterestDue, 0.01)
+        assertEquals(3, relation.transactions.size)
+
+        assertEquals(150000.0, dao.observeActivePrincipalTotal().first(), 0.01)
+        assertEquals(3000.0, dao.observeMonthlyInterestExpectedTotal().first(), 0.01)
+        assertEquals(3000.0, dao.observeTotalInterestCollected().first(), 0.01)
+    }
 }

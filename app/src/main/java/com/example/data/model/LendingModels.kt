@@ -1,9 +1,11 @@
 package com.example.data.model
 
+import androidx.room.Embedded
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import androidx.room.Relation
 
 enum class AccountStatus(val label: String) {
     ACTIVE("Active"),
@@ -41,8 +43,8 @@ enum class PaymentMode(val label: String) {
     }
 }
 
-@Entity(tableName = "customers")
-data class Customer(
+@Entity(tableName = "borrowers")
+data class Borrower(
     @PrimaryKey val id: String = "",
     val customerCode: String = "",
     val name: String = "",
@@ -68,15 +70,18 @@ data class Customer(
     tableName = "transactions",
     foreignKeys = [
         ForeignKey(
-            entity = Customer::class,
+            entity = Borrower::class,
             parentColumns = ["id"],
             childColumns = ["customerId"],
             onDelete = ForeignKey.CASCADE,
         )
     ],
-    indices = [Index(value = ["customerId"])],
+    indices = [
+        Index(value = ["customerId"]),
+        Index(value = ["transactionDate"]),
+    ],
 )
-data class LoanTransaction(
+data class Transaction(
     @PrimaryKey val id: String = "",
     val transactionCode: String = "",
     val customerId: String = "",
@@ -89,6 +94,21 @@ data class LoanTransaction(
     val notes: String = "",
     val createdAtMillis: Long = System.currentTimeMillis(),
 )
+
+/**
+ * Room 1-to-many relation pairing a Borrower with their chronological Transaction history.
+ */
+data class BorrowerWithTransactions(
+    @Embedded val borrower: Borrower,
+    @Relation(
+        parentColumn = "id",
+        entityColumn = "customerId",
+    )
+    val transactions: List<Transaction>,
+)
+
+typealias Customer = Borrower
+typealias LoanTransaction = Transaction
 
 data class NewCustomerInput(
     val customerCode: String,
@@ -112,7 +132,7 @@ data class RecordTransactionInput(
 )
 
 data class TillDateUnpaidBorrower(
-    val customer: Customer,
+    val customer: Borrower,
     val expectedAmount: Double,
     val paidAmount: Double,
     val unpaidAmount: Double,
