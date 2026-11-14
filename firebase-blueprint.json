@@ -1,0 +1,100 @@
+{
+  "entities": {
+    "Customer": {
+      "title": "Customer",
+      "description": "Borrower account in the lending ledger tracking principal, 2% monthly interest, and collection status.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Authenticated lender UID" },
+        "customerCode": { "type": "string", "description": "Human-readable borrower identifier (e.g., CUST-1001)" },
+        "name": { "type": "string", "description": "Borrower full name" },
+        "phoneNumber": { "type": "string", "description": "Borrower contact phone number" },
+        "disbursementDate": { "type": "string", "description": "ISO date YYYY-MM-DD of initial loan disbursement" },
+        "dueDayOfMonth": { "type": "integer", "description": "Day of the month (1-31) when monthly interest is due" },
+        "initialPrincipal": { "type": "number", "description": "Original disbursed loan principal" },
+        "extraPrincipalAdded": { "type": "number", "description": "Cumulative principal added via loan top-ups" },
+        "principalRepaid": { "type": "number", "description": "Cumulative principal repaid via partial payments and closures" },
+        "currentActivePrincipal": { "type": "number", "description": "Calculated active principal: initial + top-ups - repaid" },
+        "monthlyInterestRate": { "type": "number", "description": "Monthly interest percentage rate (default 2.0)" },
+        "monthlyInterestDue": { "type": "number", "description": "Calculated monthly interest due: currentActivePrincipal * rate / 100" },
+        "status": { "type": "string", "enum": ["Active", "Follow-up Needed", "Closed"], "description": "Current borrower account status" },
+        "lastPaymentDate": { "type": "string", "description": "ISO date YYYY-MM-DD of the most recent payment" },
+        "lastInterestPaidMonth": { "type": "string", "description": "Year-month YYYY-MM covered by the latest interest or closure payment" },
+        "followUpNotes": { "type": "string", "description": "Field collection remarks and follow-up notes" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp of creation via FieldValue.serverTimestamp()" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp of last update via FieldValue.serverTimestamp()" }
+      },
+      "required": [
+        "userId",
+        "customerCode",
+        "name",
+        "phoneNumber",
+        "disbursementDate",
+        "dueDayOfMonth",
+        "initialPrincipal",
+        "extraPrincipalAdded",
+        "principalRepaid",
+        "currentActivePrincipal",
+        "monthlyInterestRate",
+        "monthlyInterestDue",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "LoanTransaction": {
+      "title": "LoanTransaction",
+      "description": "Immutable chronological audit trail entry linked to a Customer.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Authenticated lender UID" },
+        "transactionCode": { "type": "string", "description": "Human-readable transaction identifier (e.g., TXN-1001)" },
+        "customerId": { "type": "string", "description": "Firestore document ID of the linked Customer" },
+        "customerCode": { "type": "string", "description": "Borrower code auto-populated from Customer" },
+        "customerName": { "type": "string", "description": "Borrower name auto-populated from Customer" },
+        "transactionType": {
+          "type": "string",
+          "enum": [
+            "Initial Disbursement",
+            "Monthly Interest Payment",
+            "Top-Up",
+            "Principal Repayment",
+            "Full Closure"
+          ],
+          "description": "Financial event category"
+        },
+        "amount": { "type": "number", "description": "Transaction amount" },
+        "paymentMode": {
+          "type": "string",
+          "enum": ["UPI", "Cash", "Bank Transfer", "Cheque"],
+          "description": "Payment settlement method"
+        },
+        "transactionDate": { "type": "string", "description": "ISO date YYYY-MM-DD of the transaction" },
+        "notes": { "type": "string", "description": "Optional ledger remarks" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp of creation via FieldValue.serverTimestamp()" }
+      },
+      "required": [
+        "userId",
+        "transactionCode",
+        "customerId",
+        "customerCode",
+        "customerName",
+        "transactionType",
+        "amount",
+        "paymentMode",
+        "transactionDate",
+        "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/customers/{customerId}": {
+      "schema": { "$ref": "#/entities/Customer" },
+      "description": "Lender's borrower accounts scoped by userId"
+    },
+    "/users/{userId}/transactions/{transactionId}": {
+      "schema": { "$ref": "#/entities/LoanTransaction" },
+      "description": "Immutable financial ledger transactions scoped by userId"
+    }
+  }
+}

@@ -1,0 +1,151 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidCustomer(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.customerCode is string && data.customerCode.size() >= 1 && data.customerCode.size() <= 32 &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+             data.phoneNumber is string && data.phoneNumber.size() >= 1 && data.phoneNumber.size() <= 30 &&
+             data.disbursementDate is string && data.disbursementDate.size() == 10 &&
+             data.dueDayOfMonth is int && data.dueDayOfMonth >= 1 && data.dueDayOfMonth <= 31 &&
+             data.initialPrincipal is number && data.initialPrincipal > 0 && data.initialPrincipal <= 1000000000 &&
+             data.extraPrincipalAdded is number && data.extraPrincipalAdded >= 0 && data.extraPrincipalAdded <= 1000000000 &&
+             data.principalRepaid is number && data.principalRepaid >= 0 && data.principalRepaid <= 1000000000 &&
+             data.currentActivePrincipal is number && data.currentActivePrincipal >= 0 && data.currentActivePrincipal <= 1000000000 &&
+             data.monthlyInterestRate is number && data.monthlyInterestRate >= 0 && data.monthlyInterestRate <= 100 &&
+             data.monthlyInterestDue is number && data.monthlyInterestDue >= 0 && data.monthlyInterestDue <= 1000000000 &&
+             data.status in ['Active', 'Follow-up Needed', 'Closed'] &&
+             (!('lastPaymentDate' in data) || (data.lastPaymentDate is string && data.lastPaymentDate.size() <= 20)) &&
+             (!('lastInterestPaidMonth' in data) || (data.lastInterestPaidMonth is string && data.lastInterestPaidMonth.size() <= 10)) &&
+             (!('followUpNotes' in data) || (data.followUpNotes is string && data.followUpNotes.size() <= 1000));
+    }
+
+    function isValidLoanTransaction(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.transactionCode is string && data.transactionCode.size() >= 1 && data.transactionCode.size() <= 32 &&
+             isValidId(data.customerId) &&
+             data.customerCode is string && data.customerCode.size() >= 1 && data.customerCode.size() <= 32 &&
+             data.customerName is string && data.customerName.size() >= 1 && data.customerName.size() <= 120 &&
+             data.transactionType in [
+               'Initial Disbursement',
+               'Monthly Interest Payment',
+               'Top-Up',
+               'Principal Repayment',
+               'Full Closure'
+             ] &&
+             data.amount is number && data.amount > 0 && data.amount <= 1000000000 &&
+             data.paymentMode in ['UPI', 'Cash', 'Bank Transfer', 'Cheque'] &&
+             data.transactionDate is string && data.transactionDate.size() == 10 &&
+             (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000));
+    }
+
+    match /users/{userId}/customers/{customerId} {
+      allow get: if isOwner(userId) && isValidId(customerId);
+      allow list: if isOwner(userId);
+
+      allow create: if isOwner(userId) &&
+                       isValidId(customerId) &&
+                       incoming().userId == request.auth.uid &&
+                       incoming().keys().hasAll([
+                         'userId', 'customerCode', 'name', 'phoneNumber',
+                         'disbursementDate', 'dueDayOfMonth', 'initialPrincipal',
+                         'extraPrincipalAdded', 'principalRepaid', 'currentActivePrincipal',
+                         'monthlyInterestRate', 'monthlyInterestDue', 'status',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'customerCode', 'name', 'phoneNumber',
+                         'disbursementDate', 'dueDayOfMonth', 'initialPrincipal',
+                         'extraPrincipalAdded', 'principalRepaid', 'currentActivePrincipal',
+                         'monthlyInterestRate', 'monthlyInterestDue', 'status',
+                         'lastPaymentDate', 'lastInterestPaidMonth', 'followUpNotes',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().createdAt is timestamp &&
+                       incoming().createdAt <= request.time &&
+                       incoming().updatedAt is timestamp &&
+                       incoming().updatedAt <= request.time &&
+                       isValidCustomer(incoming());
+
+      allow update: if isOwner(userId) &&
+                       isValidId(customerId) &&
+                       isValidCustomer(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().customerCode == existing().customerCode &&
+                       incoming().initialPrincipal == existing().initialPrincipal &&
+                       incoming().disbursementDate == existing().disbursementDate &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().updatedAt is timestamp &&
+                       incoming().updatedAt <= request.time &&
+                       (
+                         (
+                           incoming().diff(existing()).affectedKeys().hasOnly([
+                             'name', 'phoneNumber', 'dueDayOfMonth',
+                             'monthlyInterestRate', 'monthlyInterestDue',
+                             'status', 'followUpNotes', 'updatedAt'
+                           ])
+                         ) ||
+                         (
+                           existing().status != 'Closed' &&
+                           incoming().diff(existing()).affectedKeys().hasOnly([
+                             'extraPrincipalAdded', 'principalRepaid',
+                             'currentActivePrincipal', 'monthlyInterestDue',
+                             'status', 'lastPaymentDate', 'lastInterestPaidMonth',
+                             'updatedAt'
+                           ])
+                         )
+                       );
+
+      allow delete: if isOwner(userId) && isValidId(customerId);
+    }
+
+    match /users/{userId}/transactions/{transactionId} {
+      allow get: if isOwner(userId) && isValidId(transactionId);
+      allow list: if isOwner(userId);
+
+      allow create: if isOwner(userId) &&
+                       isValidId(transactionId) &&
+                       incoming().userId == request.auth.uid &&
+                       incoming().keys().hasAll([
+                         'userId', 'transactionCode', 'customerId',
+                         'customerCode', 'customerName', 'transactionType',
+                         'amount', 'paymentMode', 'transactionDate', 'createdAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'transactionCode', 'customerId',
+                         'customerCode', 'customerName', 'transactionType',
+                         'amount', 'paymentMode', 'transactionDate', 'notes', 'createdAt'
+                       ]) &&
+                       incoming().createdAt is timestamp &&
+                       incoming().createdAt <= request.time &&
+                       isValidLoanTransaction(incoming()) &&
+                       existsAfter(/databases/$(database)/documents/users/$(userId)/customers/$(incoming().customerId));
+
+      allow update, delete: if false;
+    }
+  }
+}

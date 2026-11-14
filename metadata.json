@@ -1,0 +1,6 @@
+{
+  "name": "LendFlow",
+  "description": "Monthly interest finance and lending ledger for managing borrower accounts, tracking 2% monthly interest collections, loan top-ups, principal repayments, and follow-up workflows.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
