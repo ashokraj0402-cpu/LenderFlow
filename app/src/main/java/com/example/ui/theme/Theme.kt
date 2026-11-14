@@ -4,7 +4,6 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.dp
@@ -13,7 +12,7 @@ private val LightColorScheme = lightColorScheme(
     primary = TrustBlue,
     onPrimary = CrispWhite,
     primaryContainer = TrustBlueSoft,
-    onPrimaryContainer = TrustNavy,
+    onPrimaryContainer = TrustBlue,
     secondary = TrustNavy,
     onSecondary = CrispWhite,
     secondaryContainer = SlateSurfaceVariant,
@@ -36,33 +35,6 @@ private val LightColorScheme = lightColorScheme(
     onErrorContainer = CrimsonOverdue,
 )
 
-private val DarkColorScheme = darkColorScheme(
-    primary = DarkPrimary,
-    onPrimary = CrispWhite,
-    primaryContainer = DarkSurfaceVariant,
-    onPrimaryContainer = DarkTextPrimary,
-    secondary = DarkPrimary,
-    onSecondary = CrispWhite,
-    secondaryContainer = DarkSurfaceVariant,
-    onSecondaryContainer = DarkTextPrimary,
-    tertiary = EmeraldCollected,
-    onTertiary = CrispWhite,
-    tertiaryContainer = DarkSurfaceVariant,
-    onTertiaryContainer = EmeraldBorder,
-    background = DarkBackground,
-    onBackground = DarkTextPrimary,
-    surface = DarkSurface,
-    onSurface = DarkTextPrimary,
-    surfaceVariant = DarkSurfaceVariant,
-    onSurfaceVariant = DarkTextSecondary,
-    outline = DarkOutline,
-    outlineVariant = DarkOutline,
-    error = CrimsonOverdue,
-    onError = CrispWhite,
-    errorContainer = DarkSurfaceVariant,
-    onErrorContainer = CrimsonBorder,
-)
-
 val LendFlowShapes = Shapes(
     small = RoundedCornerShape(10.dp),
     medium = RoundedCornerShape(14.dp),
@@ -72,13 +44,12 @@ val LendFlowShapes = Shapes(
 
 @Composable
 fun LendFlowTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    @Suppress("UNUSED_PARAMETER") darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit,
 ) {
-    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
-
+    // Always render the simple, pure-white financial color scheme in both light and dark modes
     MaterialTheme(
-        colorScheme = colorScheme,
+        colorScheme = LightColorScheme,
         typography = AppTypography,
         shapes = LendFlowShapes,
         content = content,

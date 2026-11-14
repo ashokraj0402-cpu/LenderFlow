@@ -5,6 +5,8 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -35,7 +37,6 @@ import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Home
@@ -43,6 +44,7 @@ import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -96,6 +98,7 @@ import com.example.data.model.Customer
 import com.example.data.model.PaymentMode
 import com.example.data.model.TransactionType
 import com.example.data.repository.LendingRepository
+import com.example.domain.ExcelWorkbookExporter
 import com.example.domain.LoanCalculator
 import com.example.ui.components.BorrowerListCard
 import com.example.ui.components.KpiMetricCard
@@ -188,6 +191,61 @@ fun LendingMainScreen() {
         }
     }
 
+    var pendingExcelSaveState by remember { mutableStateOf<LedgerUiState.Success?>(null) }
+
+    val saveExcelLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument(ExcelWorkbookExporter.MIME_XLSX),
+    ) { uri ->
+        val state = pendingExcelSaveState ?: (uiState as? LedgerUiState.Success)
+        pendingExcelSaveState = null
+        if (uri != null && state != null) {
+            runCatching {
+                context.contentResolver.openOutputStream(uri)?.use { out ->
+                    ExcelWorkbookExporter.writeWorkbookToStream(
+                        outputStream = out,
+                        customers = state.customers,
+                        transactions = state.transactions,
+                        kpis = state.kpis,
+                        summaries = state.monthlySummaries,
+                    )
+                }
+            }.onSuccess {
+                coroutineScope.launch {
+                    snackbarHostState.showSnackbar("Saved ${ExcelWorkbookExporter.DEFAULT_FILE_NAME} to device")
+                }
+            }.onFailure { err ->
+                coroutineScope.launch {
+                    snackbarHostState.showSnackbar(err.localizedMessage ?: "Failed to save Excel file")
+                }
+            }
+        }
+    }
+
+    fun shareExcelWorkbook(state: LedgerUiState.Success) {
+        runCatching {
+            val file = ExcelWorkbookExporter.syncWorkbookToAppStorage(
+                context = context,
+                customers = state.customers,
+                transactions = state.transactions,
+                kpis = state.kpis,
+                summaries = state.monthlySummaries,
+            )
+            val shareUri = ExcelWorkbookExporter.getShareUri(context, file)
+            val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                type = ExcelWorkbookExporter.MIME_XLSX
+                putExtra(Intent.EXTRA_SUBJECT, "LendFlow Ledger (${ExcelWorkbookExporter.DEFAULT_FILE_NAME})")
+                putExtra(Intent.EXTRA_TEXT, "Attached LendFlow lending workbook (${state.customers.size} borrowers, ${state.transactions.size} entries).")
+                putExtra(Intent.EXTRA_STREAM, shareUri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(sendIntent, "Transfer Excel Workbook"))
+        }.onFailure { err ->
+            coroutineScope.launch {
+                snackbarHostState.showSnackbar(err.localizedMessage ?: "Could not share Excel file")
+            }
+        }
+    }
+
     fun shareCsvReport(state: LedgerUiState.Success) {
         val csv = LoanCalculator.buildCsvExport(state.customers, state.filteredTransactions)
         val sendIntent = Intent(Intent.ACTION_SEND).apply {
@@ -213,6 +271,7 @@ fun LendingMainScreen() {
         val isWideScreen = maxWidth >= 600.dp
 
         Scaffold(
+            containerColor = MaterialTheme.colorScheme.background,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             snackbarHost = { SnackbarHost(snackbarHostState) },
             topBar = {
@@ -224,7 +283,7 @@ fun LendingMainScreen() {
                                 style = MaterialTheme.typography.headlineMedium.copy(
                                     fontWeight = FontWeight.Bold,
                                 ),
-                                color = TrustBlue,
+                                color = TrustNavy,
                             )
                         },
                         actions = {
@@ -242,14 +301,16 @@ fun LendingMainScreen() {
                                     icon = Icons.Filled.Search,
                                     contentDescription = "Toggle search",
                                     onClick = { showSearchBar = !showSearchBar },
-                                    tint = if (showSearchBar) MaterialTheme.colorScheme.onPrimary else TrustBlue,
-                                    containerColor = if (showSearchBar) TrustBlue else TrustBlueSoft,
+                                    tint = if (showSearchBar) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                                    containerColor = if (showSearchBar) TrustBlue else MaterialTheme.colorScheme.surfaceVariant,
                                     modifier = Modifier.testTag("top_search_toggle_button"),
                                 )
                                 SleekCircularActionIcon(
-                                    icon = Icons.Filled.Assessment,
-                                    contentDescription = "Monthly summary and export",
+                                    icon = Icons.Filled.TableChart,
+                                    contentDescription = "Excel workbook and monthly summary",
                                     onClick = { showExportModal = true },
+                                    tint = EmeraldCollected,
+                                    containerColor = EmeraldSoft,
                                     modifier = Modifier.testTag("export_summary_button"),
                                 )
                             }
@@ -528,11 +589,21 @@ fun LendingMainScreen() {
                             }
 
                             if (showExportModal) {
+                                val excelFileSizeKb = remember(state.customers.size, state.transactions.size) {
+                                    val file = ExcelWorkbookExporter.getLocalWorkbookFile(context)
+                                    if (file.exists()) (file.length() / 1024L).coerceAtLeast(1L) else 4L
+                                }
                                 ExportSummaryModal(
                                     summaries = state.monthlySummaries,
                                     totalCustomers = state.customers.size,
                                     totalTransactions = state.transactions.size,
+                                    excelFileSizeKb = excelFileSizeKb,
                                     onDismiss = { showExportModal = false },
+                                    onShareExcel = { shareExcelWorkbook(state) },
+                                    onSaveExcelToDevice = {
+                                        pendingExcelSaveState = state
+                                        saveExcelLauncher.launch(ExcelWorkbookExporter.DEFAULT_FILE_NAME)
+                                    },
                                     onShareCsv = { shareCsvReport(state) },
                                     onCopyCsv = { copyCsvReport(state) },
                                 )
@@ -600,7 +671,7 @@ private fun DashboardFeedContent(
                         Text(
                             text = "Dashboard",
                             style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-                            color = TrustBlue,
+                            color = TrustNavy,
                         )
                         Text(
                             text = "மாதாந்திர பணம் மற்றும் வட்டி கணக்கு",
@@ -609,14 +680,13 @@ private fun DashboardFeedContent(
                         )
                     }
                     Surface(
-                        color = TrustBlueSoft,
+                        color = EmeraldSoft,
                         shape = RoundedCornerShape(999.dp),
-                        border = BorderStroke(1.dp, TrustBlueBorder),
                     ) {
                         Text(
                             text = "${kpis.activeBorrowersCount} Active",
                             style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
-                            color = TrustBlue,
+                            color = EmeraldCollected,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
                         )
                     }
@@ -636,7 +706,7 @@ private fun DashboardFeedContent(
                                 icon = Icons.Filled.AccountBalanceWallet,
                                 accentColor = TrustBlue,
                                 accentBackground = TrustBlueSoft,
-                                valueColor = TrustBlue,
+                                valueColor = TrustNavy,
                                 modifier = Modifier
                                     .weight(1f)
                                     .testTag("kpi_active_principal"),
@@ -646,8 +716,8 @@ private fun DashboardFeedContent(
                                 value = LoanCalculator.formatCurrency(kpis.monthlyInterestExpected),
                                 subtitle = "2% rate · மாத வட்டி",
                                 icon = Icons.AutoMirrored.Filled.TrendingUp,
-                                accentColor = TrustBlue,
-                                accentBackground = TrustBlueSoft,
+                                accentColor = EmeraldCollected,
+                                accentBackground = EmeraldSoft,
                                 valueColor = TrustNavy,
                                 modifier = Modifier
                                     .weight(1f)
@@ -658,10 +728,10 @@ private fun DashboardFeedContent(
                                 value = LoanCalculator.formatCurrency(kpis.overdueInterestAmount),
                                 subtitle = if (kpis.followUpCount > 0) "${kpis.followUpCount} follow-up needed" else "All on track",
                                 icon = Icons.Filled.Warning,
-                                accentColor = if (kpis.overdueInterestAmount > 0) CrimsonOverdue else TrustBlue,
-                                accentBackground = if (kpis.overdueInterestAmount > 0) CrimsonSoft else TrustBlueSoft,
+                                accentColor = if (kpis.overdueInterestAmount > 0) CrimsonOverdue else EmeraldCollected,
+                                accentBackground = if (kpis.overdueInterestAmount > 0) CrimsonSoft else EmeraldSoft,
                                 highlightBorder = kpis.overdueInterestAmount > 0,
-                                valueColor = if (kpis.overdueInterestAmount > 0) CrimsonOverdue else TrustBlue,
+                                valueColor = if (kpis.overdueInterestAmount > 0) CrimsonOverdue else TrustNavy,
                                 modifier = Modifier
                                     .weight(1f)
                                     .testTag("kpi_overdue_interest"),
@@ -673,7 +743,7 @@ private fun DashboardFeedContent(
                                 icon = Icons.Filled.Payments,
                                 accentColor = EmeraldCollected,
                                 accentBackground = EmeraldSoft,
-                                valueColor = TrustNavy,
+                                valueColor = EmeraldCollected,
                                 modifier = Modifier
                                     .weight(1f)
                                     .testTag("kpi_interest_collected"),
@@ -695,7 +765,7 @@ private fun DashboardFeedContent(
                                     icon = Icons.Filled.AccountBalanceWallet,
                                     accentColor = TrustBlue,
                                     accentBackground = TrustBlueSoft,
-                                    valueColor = TrustBlue,
+                                    valueColor = TrustNavy,
                                     modifier = Modifier
                                         .weight(1f)
                                         .testTag("kpi_active_principal"),
@@ -705,8 +775,8 @@ private fun DashboardFeedContent(
                                     value = LoanCalculator.formatCurrency(kpis.monthlyInterestExpected),
                                     subtitle = "2% rate · மாத வட்டி",
                                     icon = Icons.AutoMirrored.Filled.TrendingUp,
-                                    accentColor = TrustBlue,
-                                    accentBackground = TrustBlueSoft,
+                                    accentColor = EmeraldCollected,
+                                    accentBackground = EmeraldSoft,
                                     valueColor = TrustNavy,
                                     modifier = Modifier
                                         .weight(1f)
@@ -722,10 +792,10 @@ private fun DashboardFeedContent(
                                     value = LoanCalculator.formatCurrency(kpis.overdueInterestAmount),
                                     subtitle = if (kpis.followUpCount > 0) "${kpis.followUpCount} follow-up needed" else "All on track",
                                     icon = Icons.Filled.Warning,
-                                    accentColor = if (kpis.overdueInterestAmount > 0) CrimsonOverdue else TrustBlue,
-                                    accentBackground = if (kpis.overdueInterestAmount > 0) CrimsonSoft else TrustBlueSoft,
+                                    accentColor = if (kpis.overdueInterestAmount > 0) CrimsonOverdue else EmeraldCollected,
+                                    accentBackground = if (kpis.overdueInterestAmount > 0) CrimsonSoft else EmeraldSoft,
                                     highlightBorder = kpis.overdueInterestAmount > 0,
-                                    valueColor = if (kpis.overdueInterestAmount > 0) CrimsonOverdue else TrustBlue,
+                                    valueColor = if (kpis.overdueInterestAmount > 0) CrimsonOverdue else TrustNavy,
                                     modifier = Modifier
                                         .weight(1f)
                                         .testTag("kpi_overdue_interest"),
@@ -737,7 +807,7 @@ private fun DashboardFeedContent(
                                     icon = Icons.Filled.Payments,
                                     accentColor = EmeraldCollected,
                                     accentBackground = EmeraldSoft,
-                                    valueColor = TrustNavy,
+                                    valueColor = EmeraldCollected,
                                     modifier = Modifier
                                         .weight(1f)
                                         .testTag("kpi_interest_collected"),
@@ -853,7 +923,7 @@ private fun BorrowersTabContent(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column {
-                        Text("Borrowers", style = MaterialTheme.typography.titleLarge, color = TrustBlue)
+                        Text("Borrowers", style = MaterialTheme.typography.titleLarge, color = TrustNavy)
                         Text(
                             text = "${state.customers.size} accounts · 2%/mo",
                             style = MaterialTheme.typography.bodySmall,
@@ -1042,7 +1112,7 @@ private fun TransactionsTabContent(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column {
-                        Text("Transactions Ledger", style = MaterialTheme.typography.titleLarge, color = TrustBlue)
+                        Text("Transactions Ledger", style = MaterialTheme.typography.titleLarge, color = TrustNavy)
                         Text(
                             text = "${state.filteredTransactions.size} chronological entries",
                             style = MaterialTheme.typography.bodySmall,
@@ -1054,7 +1124,7 @@ private fun TransactionsTabContent(
                         shape = RoundedCornerShape(999.dp),
                         modifier = Modifier.testTag("ledger_export_button"),
                     ) {
-                        Text("Export", color = TrustBlue)
+                        Text("Excel / Export", color = TrustBlue)
                     }
                 }
             }

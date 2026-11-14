@@ -10,11 +10,14 @@ import com.example.data.model.LoanTransaction
 import com.example.data.model.NewCustomerInput
 import com.example.data.model.RecordTransactionInput
 import com.example.data.model.TransactionType
+import com.example.domain.ExcelWorkbookExporter
 import com.example.domain.LoanCalculator
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.util.UUID
 import kotlin.math.max
 
@@ -37,13 +40,14 @@ class LendingRepository(
         seedMutex.withLock {
             val prefs = appContext?.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             val alreadySeeded = prefs?.getBoolean(KEY_SEEDED_V1, false) ?: false
-            if (alreadySeeded) return
-
-            if (dao.getCustomerCount() == 0) {
-                val (customers, transactions) = DefaultBorrowersSeed.buildSeedData()
-                dao.seedDefaultData(customers, transactions)
+            if (!alreadySeeded) {
+                if (dao.getCustomerCount() == 0) {
+                    val (customers, transactions) = DefaultBorrowersSeed.buildSeedData()
+                    dao.seedDefaultData(customers, transactions)
+                }
+                prefs?.edit()?.putBoolean(KEY_SEEDED_V1, true)?.apply()
             }
-            prefs?.edit()?.putBoolean(KEY_SEEDED_V1, true)?.apply()
+            syncWorkbookFile()
         }
     }
 
@@ -98,6 +102,7 @@ class LendingRepository(
             )
 
             dao.insertCustomerWithDisbursement(customer, transaction)
+            syncWorkbookFile()
             Result.success(customerId)
         } catch (e: CancellationException) {
             throw e
@@ -226,6 +231,7 @@ class LendingRepository(
             )
 
             dao.updateCustomerAndInsertTransaction(updatedCustomer, transaction)
+            syncWorkbookFile()
             Result.success(transactionId)
         } catch (e: CancellationException) {
             throw e
@@ -263,6 +269,7 @@ class LendingRepository(
                 updatedAtMillis = System.currentTimeMillis(),
             )
             dao.updateCustomer(updated)
+            syncWorkbookFile()
             Result.success(Unit)
         } catch (e: CancellationException) {
             throw e
@@ -274,11 +281,31 @@ class LendingRepository(
     suspend fun deleteCustomer(customerId: String): Result<Unit> {
         return try {
             dao.deleteCustomerById(customerId)
+            syncWorkbookFile()
             Result.success(Unit)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             Result.failure(e)
+        }
+    }
+
+    private suspend fun syncWorkbookFile() {
+        val ctx = appContext ?: return
+        withContext(Dispatchers.IO) {
+            val customers = dao.getAllCustomers()
+            val transactions = dao.getAllTransactions()
+            val today = LoanCalculator.todayIso()
+            val kpis = LoanCalculator.computePortfolioKpis(customers, transactions, today)
+            val summaries = LoanCalculator.buildMonthlyCollectionSummaries(transactions)
+            ExcelWorkbookExporter.syncWorkbookToAppStorage(
+                context = ctx,
+                customers = customers,
+                transactions = transactions,
+                kpis = kpis,
+                summaries = summaries,
+                referenceDateIso = today,
+            )
         }
     }
 

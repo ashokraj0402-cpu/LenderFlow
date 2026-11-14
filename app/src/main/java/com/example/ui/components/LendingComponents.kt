@@ -72,8 +72,8 @@ fun SleekCircularActionIcon(
     contentDescription: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    tint: Color = TrustBlue,
-    containerColor: Color = TrustBlueSoft,
+    tint: Color = MaterialTheme.colorScheme.onSurface,
+    containerColor: Color = MaterialTheme.colorScheme.surfaceVariant,
 ) {
     Box(
         modifier = modifier
@@ -86,7 +86,6 @@ fun SleekCircularActionIcon(
             modifier = Modifier.size(38.dp),
             shape = CircleShape,
             color = containerColor,
-            border = BorderStroke(1.dp, TrustBlueBorder),
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
@@ -112,7 +111,7 @@ fun QuickComposerCard(
         color = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(16.dp),
         border = BorderStroke(1.dp, TrustBlueBorder),
-        shadowElevation = 2.dp,
+        shadowElevation = 1.dp,
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             Row(
@@ -144,8 +143,7 @@ fun QuickComposerCard(
                         .clickable(onClick = onQuickPay)
                         .testTag("composer_quick_entry_pill"),
                     shape = RoundedCornerShape(999.dp),
-                    color = TrustBlueWash,
-                    border = BorderStroke(1.dp, TrustBlueBorder),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
                 ) {
                     Box(
                         modifier = Modifier.padding(horizontal = 16.dp),
@@ -153,8 +151,8 @@ fun QuickComposerCard(
                     ) {
                         Text(
                             text = "Record interest, top-up, or repayment…",
-                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-                            color = TrustBlue,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -176,7 +174,7 @@ fun QuickComposerCard(
                 ComposerFooterAction(
                     icon = Icons.Filled.Payments,
                     label = "Pay Interest",
-                    tint = TrustBlue,
+                    tint = EmeraldCollected,
                     onClick = onQuickPay,
                     modifier = Modifier
                         .weight(1f)
@@ -202,7 +200,7 @@ fun QuickComposerCard(
                 ComposerFooterAction(
                     icon = Icons.Filled.AddCircleOutline,
                     label = "Top-Up",
-                    tint = TrustBlue,
+                    tint = AmberFollowUp,
                     onClick = onTopUpOrRepay,
                     modifier = Modifier
                         .weight(1f)
@@ -255,7 +253,7 @@ fun KpiMetricCard(
     accentBackground: Color,
     modifier: Modifier = Modifier,
     highlightBorder: Boolean = false,
-    valueColor: Color = TrustBlue,
+    valueColor: Color = TrustNavy,
 ) {
     Surface(
         modifier = modifier,
@@ -263,9 +261,9 @@ fun KpiMetricCard(
         color = MaterialTheme.colorScheme.surface,
         border = BorderStroke(
             width = if (highlightBorder) 1.5.dp else 1.dp,
-            color = if (highlightBorder) accentColor.copy(alpha = 0.65f) else TrustBlueBorder,
+            color = if (highlightBorder) accentColor.copy(alpha = 0.55f) else TrustBlueBorder,
         ),
-        shadowElevation = 2.dp,
+        shadowElevation = 1.dp,
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp),
@@ -278,8 +276,8 @@ fun KpiMetricCard(
             ) {
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
-                    color = TrustNavy,
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
@@ -312,7 +310,7 @@ fun KpiMetricCard(
             )
             Text(
                 text = subtitle,
-                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -347,7 +345,7 @@ fun MonthTillDateCard(
             width = if (hasUnpaid) 1.25.dp else 1.dp,
             color = if (hasUnpaid) CrimsonBorder else TrustBlueBorder,
         ),
-        shadowElevation = 2.dp,
+        shadowElevation = 1.dp,
     ) {
         Column(
             modifier = Modifier
@@ -364,7 +362,7 @@ fun MonthTillDateCard(
                     Text(
                         text = "Month Till Date Due",
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = TrustBlue,
+                        color = TrustNavy,
                     )
                     Text(
                         text = "${LoanCalculator.formatTillDateRange(todayIso)} · Due day ≤ ${todayIso.takeLast(2).toIntOrNull() ?: ""}",
@@ -399,7 +397,7 @@ fun MonthTillDateCard(
                     label = "To Receive",
                     value = LoanCalculator.formatCurrency(kpis.monthTillDateExpected),
                     caption = "${kpis.monthTillDateDueBorrowersCount} due",
-                    valueColor = TrustBlue,
+                    valueColor = TrustNavy,
                     containerColor = TrustBlueWash,
                     borderColor = TrustBlueBorder,
                     modifier = Modifier
@@ -411,7 +409,7 @@ fun MonthTillDateCard(
                     value = LoanCalculator.formatCurrency(kpis.monthTillDateReceived),
                     caption = "${kpis.monthTillDatePaidBorrowersCount} paid",
                     valueColor = EmeraldCollected,
-                    containerColor = EmeraldSoft.copy(alpha = 0.55f),
+                    containerColor = EmeraldSoft.copy(alpha = 0.6f),
                     borderColor = EmeraldSoft,
                     modifier = Modifier
                         .weight(1f)
@@ -587,7 +585,7 @@ fun StatusBadge(
     val (bgColor, textColor) = when {
         status == AccountStatus.CLOSED.label -> ClosedSoft to ClosedSlate
         status == AccountStatus.FOLLOW_UP_NEEDED.label -> AmberSoft to AmberFollowUp
-        else -> TrustBlueSoft to TrustBlue
+        else -> EmeraldSoft to EmeraldCollected
     }
 
     Row(
@@ -744,7 +742,7 @@ fun BorrowerListCard(
                                 fontFamily = JetBrainsMono,
                                 fontWeight = FontWeight.Bold,
                             ),
-                            color = TrustBlue,
+                            color = TrustNavy,
                         )
                     }
 
@@ -764,7 +762,7 @@ fun BorrowerListCard(
                                 fontFamily = JetBrainsMono,
                                 fontWeight = FontWeight.Bold,
                             ),
-                            color = if (showOverdueAlert) CrimsonOverdue else TrustNavy,
+                            color = if (showOverdueAlert) CrimsonOverdue else EmeraldCollected,
                         )
                     }
                 }

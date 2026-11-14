@@ -19,6 +19,12 @@ interface LendingDao {
     @Query("SELECT * FROM transactions ORDER BY transactionDate DESC, createdAtMillis DESC")
     fun observeTransactions(): Flow<List<LoanTransaction>>
 
+    @Query("SELECT * FROM customers ORDER BY createdAtMillis DESC")
+    suspend fun getAllCustomers(): List<Customer>
+
+    @Query("SELECT * FROM transactions ORDER BY transactionDate DESC, createdAtMillis DESC")
+    suspend fun getAllTransactions(): List<LoanTransaction>
+
     @Query("SELECT * FROM customers WHERE id = :customerId LIMIT 1")
     suspend fun getCustomerById(customerId: String): Customer?
 

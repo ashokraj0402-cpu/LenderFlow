@@ -26,9 +26,11 @@ import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -144,6 +146,7 @@ fun QuickPaymentModal(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surface,
     ) {
         Column(
             modifier = Modifier
@@ -443,6 +446,7 @@ fun AddBorrowerModal(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surface,
     ) {
         Column(
             modifier = Modifier
@@ -935,6 +939,7 @@ fun EditCustomerModal(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surface,
     ) {
         Column(
             modifier = Modifier
@@ -1058,7 +1063,10 @@ fun ExportSummaryModal(
     summaries: List<MonthlySummary>,
     totalCustomers: Int,
     totalTransactions: Int,
+    excelFileSizeKb: Long,
     onDismiss: () -> Unit,
+    onShareExcel: () -> Unit,
+    onSaveExcelToDevice: () -> Unit,
     onShareCsv: () -> Unit,
     onCopyCsv: () -> Unit,
 ) {
@@ -1067,6 +1075,7 @@ fun ExportSummaryModal(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surface,
     ) {
         Column(
             modifier = Modifier
@@ -1082,9 +1091,9 @@ fun ExportSummaryModal(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column {
-                    Text("Monthly Summary & Export", style = MaterialTheme.typography.titleLarge)
+                    Text("Excel Workbook & Summary", style = MaterialTheme.typography.titleLarge)
                     Text(
-                        text = "$totalCustomers borrowers • $totalTransactions ledger entries",
+                        text = "$totalCustomers borrowers · $totalTransactions ledger entries",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -1094,11 +1103,73 @@ fun ExportSummaryModal(
                 }
             }
 
+            Surface(
+                color = EmeraldSoft,
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, EmeraldCollected.copy(alpha = 0.25f)),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    modifier = Modifier.padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.TableChart,
+                        contentDescription = null,
+                        tint = EmeraldCollected,
+                        modifier = Modifier.size(26.dp),
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "LendFlow_Ledger.xlsx (Auto-Synced)",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                            color = EmeraldCollected,
+                        )
+                        Text(
+                            text = "3 sheets (Summary, Borrowers, Transactions) · ${maxOf(1L, excelFileSizeKb)} KB stored locally",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Button(
+                    onClick = onShareExcel,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(50.dp)
+                        .testTag("share_excel_button"),
+                    shape = RoundedCornerShape(12.dp),
+                ) {
+                    Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Share Excel")
+                }
+                FilledTonalButton(
+                    onClick = onSaveExcelToDevice,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(50.dp)
+                        .testTag("save_excel_button"),
+                    shape = RoundedCornerShape(12.dp),
+                ) {
+                    Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Save .xlsx")
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                OutlinedButton(
                     onClick = onShareCsv,
                     modifier = Modifier
                         .weight(1f)
@@ -1106,7 +1177,7 @@ fun ExportSummaryModal(
                         .testTag("share_csv_button"),
                     shape = RoundedCornerShape(12.dp),
                 ) {
-                    Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
                     Text("Share CSV")
                 }
@@ -1118,7 +1189,7 @@ fun ExportSummaryModal(
                         .testTag("copy_csv_button"),
                     shape = RoundedCornerShape(12.dp),
                 ) {
-                    Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
                     Text("Copy CSV")
                 }
